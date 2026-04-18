@@ -290,11 +290,6 @@
     </script>
 </head>
 <body>
-    <div class="header">
-        <h1>NES</h1>
-        <div class="subtitle">ENTERTAINMENT SYSTEM</div>
-    </div>
-
     <div class="screen-wrapper">
         <div class="tv-frame" id="tvFrame">
             <div class="screen-container">
@@ -407,13 +402,34 @@
                     { address: 0x000E, name: 'playerState' },
                 ]);
 
+                // RAM addresses for world/level identification
+                // $0750 = CurrentWorld, $0751 = CurrentLevel
+                // $0756 = LevelNumber, $0747 = AreaType
+                let pipeSaveTimer = null;
                 emulator.onMemoryChange = (changes) => {
                     for (const c of changes) {
-                        if (c.name === 'playerState' && c.newValue === 3) {
-                            const state = emulator.saveState();
-                            const encoded = btoa(String.fromCharCode(...state));
-                            localStorage.setItem('1st-pipe', encoded);
-                            console.log('[SAVE] Saved state to "1st-pipe" (' + state.length + ' bytes)');
+                        if (c.name === 'playerState' && c.newValue === 3 && !pipeSaveTimer) {
+                            // Delay 30 frames (~0.5s) to capture state mid-transition
+                            let frames = 0;
+                            pipeSaveTimer = () => {
+                                frames++;
+                                if (frames >= 48) {
+                                    const world = emulator.readMemory(0x0750);
+                                    const level = emulator.readMemory(0x0751);
+                                    const area = emulator.readMemory(0x0747);
+                                    const levelNum = emulator.readMemory(0x0756);
+                                    const key = `pipe-w${world}-l${level}-a${area}-n${levelNum}`;
+
+                                    const state = emulator.saveState();
+                                    const encoded = btoa(String.fromCharCode(...state));
+                                    localStorage.setItem(key, encoded);
+                                    console.log(`[SAVE] Saved state to "${key}" (${state.length} bytes)`);
+
+                                    emulator.onCycle = null;
+                                    pipeSaveTimer = null;
+                                }
+                            };
+                            emulator.onCycle = pipeSaveTimer;
                         }
                     }
                 };
@@ -425,9 +441,9 @@
                     if (saved) {
                         const bytes = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
                         emulator.loadState(bytes);
-                        console.log('[LOAD] Restored state from "' + doorParam + '" (' + bytes.length + ' bytes)');
+                        console.log(`[LOAD] Restored state from "${doorParam}" (${bytes.length} bytes)`);
                     } else {
-                        console.warn('[LOAD] No save state found for "' + doorParam + '"');
+                        console.warn(`[LOAD] No save state found for "${doorParam}"`);
                     }
                 }
 
