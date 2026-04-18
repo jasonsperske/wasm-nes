@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NES Emulator</title>
+    <style>
+        @font-face {
+            font-family: 'PressStart';
+            src: url('https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2') format('woff2');
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0f0f23;
+            color: #cccccc;
+            font-family: 'Press Start 2P', 'PressStart', monospace;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+        }
+
+        /* Scanline overlay for the whole page */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.03) 2px,
+                rgba(0, 0, 0, 0.03) 4px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .header {
+            text-align: center;
+            padding: 24px 16px 16px;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            color: #e0e0e0;
+            text-shadow: 2px 2px 0 #333, 4px 4px 0 #111;
+            letter-spacing: 2px;
+        }
+
+        .header .subtitle {
+            font-size: 8px;
+            color: #666;
+            margin-top: 8px;
+            letter-spacing: 1px;
+        }
+
+        .screen-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 768px;
+            padding: 0 16px;
+            margin: 8px 0;
+        }
+
+        .tv-frame {
+            background: #1a1a2e;
+            border: 4px solid #2a2a4a;
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow:
+                0 0 20px rgba(0, 0, 0, 0.5),
+                inset 0 0 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .screen-container {
+            position: relative;
+            background: #000;
+            border: 2px solid #111;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            aspect-ratio: 256 / 240;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        /* CRT curvature + glow effect */
+        .screen-container::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(
+                ellipse at center,
+                transparent 60%,
+                rgba(0, 0, 0, 0.4) 100%
+            );
+            pointer-events: none;
+        }
+
+        .power-led {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            font-size: 7px;
+            color: #555;
+        }
+
+        .led {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #331111;
+            border: 1px solid #222;
+            transition: all 0.3s;
+        }
+
+        .led.on {
+            background: #ff3333;
+            box-shadow: 0 0 6px #ff3333, 0 0 12px #ff000066;
+        }
+
+        /* Start screen overlay */
+        .start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            z-index: 10;
+            gap: 20px;
+        }
+
+        .start-screen.hidden {
+            display: none;
+        }
+
+        .start-title {
+            font-size: 14px;
+            color: #fcfcfc;
+            text-shadow: 2px 2px 0 #444;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .start-prompt {
+            font-size: 8px;
+            color: #888;
+            animation: blink 1.2s step-end infinite;
+        }
+
+        .rom-label {
+            position: relative;
+            display: inline-block;
+            font-size: 9px;
+            padding: 10px 20px;
+            background: #2a2a4a;
+            color: #aaa;
+            border: 2px solid #4a4a6a;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: inherit;
+            letter-spacing: 1px;
+        }
+
+        .rom-label:hover {
+            background: #3a3a5a;
+            color: #fff;
+            border-color: #6a6a8a;
+        }
+
+        .rom-label:active {
+            transform: scale(0.97);
+        }
+
+        .rom-input {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .error-msg {
+            font-size: 8px;
+            color: #ff4444;
+            max-width: 80%;
+            text-align: center;
+            line-height: 1.6;
+            display: none;
+        }
+
+        .error-msg.visible {
+            display: block;
+        }
+
+        /* Controls display */
+        .controls-section {
+            width: 100%;
+            max-width: 768px;
+            padding: 12px 16px;
+        }
+
+        .controls-header {
+            font-size: 8px;
+            color: #555;
+            margin-bottom: 10px;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 24px;
+            font-size: 7px;
+            color: #444;
+            line-height: 2;
+        }
+
+        .control-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 2px 0;
+        }
+
+        .key-name {
+            color: #666;
+        }
+
+        .key-bind {
+            background: #1a1a2e;
+            border: 1px solid #2a2a4a;
+            padding: 2px 6px;
+            color: #888;
+            font-family: inherit;
+            font-size: 7px;
+        }
+
+        /* Bottom bar */
+        .bottom-bar {
+            margin-top: auto;
+            padding: 16px;
+            font-size: 7px;
+            color: #333;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Running state - screen glow */
+        .tv-frame.running {
+            box-shadow:
+                0 0 20px rgba(0, 0, 0, 0.5),
+                inset 0 0 30px rgba(0, 0, 0, 0.3),
+                0 0 40px rgba(100, 100, 255, 0.05);
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script type="importmap">
+        { "imports": { "@kabukki/wasm-nes": "./dist/index.js" } }
+    </script>
+</head>
+<body>
+    <div class="header">
+        <h1>NES</h1>
+        <div class="subtitle">ENTERTAINMENT SYSTEM</div>
+    </div>
+
+    <div class="screen-wrapper">
+        <div class="tv-frame" id="tvFrame">
+            <div class="screen-container">
+                <canvas id="screen"></canvas>
+                <div class="start-screen" id="startScreen">
+                    <div class="start-title" id="startTitle">LOADING...</div>
+                    <label class="rom-label" id="romLabel" style="display: none">
+                        LOAD ROM
+                        <input class="rom-input" type="file" id="romInput" accept=".nes">
+                    </label>
+                    <div class="start-prompt" id="startPrompt" style="display: none">SELECT A .NES FILE</div>
+                    <div class="error-msg" id="errorMsg"></div>
+                </div>
+            </div>
+            <div class="power-led">
+                <div class="led" id="powerLed"></div>
+                <span>POWER</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls-section">
+        <div class="controls-header">-- CONTROLS --</div>
+        <div class="controls-grid">
+            <div class="control-item">
+                <span class="key-name">D-PAD</span>
+                <span class="key-bind">ARROWS</span>
+            </div>
+            <div class="control-item">
+                <span class="key-name">A BUTTON</span>
+                <span class="key-bind">Z</span>
+            </div>
+            <div class="control-item">
+                <span class="key-name">B BUTTON</span>
+                <span class="key-bind">X</span>
+            </div>
+            <div class="control-item">
+                <span class="key-name">START</span>
+                <span class="key-bind">ENTER</span>
+            </div>
+            <div class="control-item">
+                <span class="key-name">SELECT</span>
+                <span class="key-bind">SHIFT</span>
+            </div>
+            <div class="control-item">
+                <span class="key-name">RESET</span>
+                <span class="key-bind">ESC</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="bottom-bar">2026 // WASM-NES</div>
+
+    <script type="module">
+        import { Nes, Button } from '@kabukki/wasm-nes';
+
+        const canvas = document.getElementById('screen');
+        canvas.width = Nes.VIDEO_WIDTH;
+        canvas.height = Nes.VIDEO_HEIGHT;
+
+        const startScreen = document.getElementById('startScreen');
+        const romInput = document.getElementById('romInput');
+        const powerLed = document.getElementById('powerLed');
+        const tvFrame = document.getElementById('tvFrame');
+        const errorMsg = document.getElementById('errorMsg');
+
+        const startTitle = document.getElementById('startTitle');
+        const startPrompt = document.getElementById('startPrompt');
+        const romLabel = document.getElementById('romLabel');
+
+        let emulator = null;
+
+        // Key mappings: keyboard key -> [player, Button]
+        const keyMap = {
+            ArrowUp:    [0, Button.Up],
+            ArrowDown:  [0, Button.Down],
+            ArrowLeft:  [0, Button.Left],
+            ArrowRight: [0, Button.Right],
+            z:          [0, Button.A],
+            Z:          [0, Button.A],
+            x:          [0, Button.B],
+            X:          [0, Button.B],
+            Enter:      [0, Button.Start],
+            Shift:      [0, Button.Select],
+        };
+
+        function showFilePicker() {
+            startTitle.textContent = 'INSERT CARTRIDGE';
+            romLabel.style.display = '';
+            startPrompt.style.display = '';
+        }
+
+        // Prefetched ROM data, waiting for user interaction to start
+        let pendingRom = null;
+
+        async function startEmulator(romData) {
+            errorMsg.classList.remove('visible');
+            try {
+                if (emulator) {
+                    emulator.stop();
+                }
+                const rom = new Uint8Array(romData);
+                emulator = await Nes.new(rom);
+                emulator.canvas = canvas;
+                emulator.audio.fix();
+
+                // Watch playerState for pipe transitions
+                // playerState: 3 = entering pipe
+                emulator.watchMemory([
+                    { address: 0x000E, name: 'playerState' },
+                ]);
+
+                emulator.onMemoryChange = (changes) => {
+                    for (const c of changes) {
+                        if (c.name === 'playerState' && c.newValue === 3) {
+                            const state = emulator.saveState();
+                            const encoded = btoa(String.fromCharCode(...state));
+                            localStorage.setItem('1st-pipe', encoded);
+                            console.log('[SAVE] Saved state to "1st-pipe" (' + state.length + ' bytes)');
+                        }
+                    }
+                };
+
+                // Load save state from ?door= query param
+                const doorParam = new URLSearchParams(window.location.search).get('door');
+                if (doorParam) {
+                    const saved = localStorage.getItem(doorParam);
+                    if (saved) {
+                        const bytes = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
+                        emulator.loadState(bytes);
+                        console.log('[LOAD] Restored state from "' + doorParam + '" (' + bytes.length + ' bytes)');
+                    } else {
+                        console.warn('[LOAD] No save state found for "' + doorParam + '"');
+                    }
+                }
+
+                emulator.start();
+
+                startScreen.classList.add('hidden');
+                powerLed.classList.add('on');
+                tvFrame.classList.add('running');
+            } catch (err) {
+                console.error(err);
+                errorMsg.textContent = 'BAD ROM: ' + (err.message || 'UNKNOWN ERROR');
+                errorMsg.classList.add('visible');
+                showFilePicker();
+            }
+        }
+
+        function showPressStart() {
+            startTitle.textContent = 'PRESS START';
+            startPrompt.textContent = 'CLICK OR PRESS ANY KEY';
+            startPrompt.style.display = '';
+            romLabel.style.display = 'none';
+        }
+
+        function onUserInteraction() {
+            if (!pendingRom) return;
+            const romData = pendingRom;
+            pendingRom = null;
+            document.removeEventListener('click', onUserInteraction);
+            document.removeEventListener('keydown', onUserInteraction);
+            startEmulator(romData);
+        }
+
+        // Auto-load rom.nes, then wait for user interaction before starting
+        try {
+            const res = await fetch('./rom.nes');
+            if (!res.ok) throw new Error();
+            pendingRom = await res.arrayBuffer();
+            showPressStart();
+            document.addEventListener('click', onUserInteraction);
+            document.addEventListener('keydown', onUserInteraction);
+        } catch {
+            showFilePicker();
+        }
+
+        // Manual ROM loading (file picker click counts as user interaction)
+        romInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            pendingRom = null;
+            document.removeEventListener('click', onUserInteraction);
+            document.removeEventListener('keydown', onUserInteraction);
+            await startEmulator(await file.arrayBuffer());
+        });
+
+        // Keyboard input
+        document.addEventListener('keydown', (e) => {
+            if (!emulator) return;
+
+            // Reset on Escape
+            if (e.key === 'Escape') {
+                emulator.reset();
+                return;
+            }
+
+            const mapping = keyMap[e.key];
+            if (mapping) {
+                e.preventDefault();
+                emulator.input(mapping[0], mapping[1], true);
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (!emulator) return;
+
+            const mapping = keyMap[e.key];
+            if (mapping) {
+                e.preventDefault();
+                emulator.input(mapping[0], mapping[1], false);
+            }
+        });
+    </script>
+</body>
+</html>

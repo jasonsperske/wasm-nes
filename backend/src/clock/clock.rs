@@ -52,7 +52,7 @@ impl ClockDivider {
 
     pub fn tick (&mut self, clock: f64) -> bool {
         let previous = self.cycles;
-        self.cycles = (clock / (1.0 / self.rate)) as usize;
+        self.cycles = (clock * self.rate) as usize;
         self.cycles != previous
     }
 }

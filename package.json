@@ -14,6 +14,7 @@
     "watch": "concurrently -c red.bold,yellow.bold -n back,front npm:watch:back npm:watch:front",
     "test:back": "cd backend && cargo test -- --show-output",
     "lint:back": "cd backend && cargo clippy",
+    "disasm": "node tools/disasm.mjs",
     "prepack": "npm run build"
   },
   "dependencies": {

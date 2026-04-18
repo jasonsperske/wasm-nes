@@ -12,10 +12,22 @@ export enum Status {
     ERROR,
 }
 
+export interface MemoryWatch {
+    address: number;
+    name: string;
+}
+
+export interface MemoryChangeEvent {
+    address: number;
+    name: string;
+    oldValue: number;
+    newValue: number;
+}
+
 export class Nes {
     static VIDEO_WIDTH = 256;
     static VIDEO_HEIGHT = 240;
-    
+
     canvas: HTMLCanvasElement;
     error: Error;
     logs: Logs;
@@ -24,13 +36,17 @@ export class Nes {
     audio: Audio;
     onCycle?: () => void;
     onStatus?: () => void;
+    onMemoryChange?: (changes: MemoryChangeEvent[]) => void;
+    onScreenChange?: (event: { type: string, values: Record<string, number> }) => void;
 
     #vm: Emulator;
     #rafHandle: ReturnType<typeof requestAnimationFrame>;
     #stats: GameStats;
+    #watches: MemoryWatch[];
+    #watchValues: Map<number, number>;
 
     static async new (rom) {
-        const { memory } = await init(wasm);
+        const { memory } = await init({ module_or_path: wasm });
         return new Nes(rom, memory);
     }
 
@@ -40,6 +56,8 @@ export class Nes {
         this.audio = new Audio();
         this.#vm = Emulator.new(rom, this.audio.sampleRate);
         this.#stats = new GameStats({ historyLimit: 100 });
+        this.#watches = [];
+        this.#watchValues = new Map();
 
         set_panic_hook((message) => this.stop(new Error(message)));
         // db.getAll().then(setSaves).catch(setError);
@@ -77,6 +95,61 @@ export class Nes {
         this.#vm.reset();
     }
 
+    saveState (): Uint8Array {
+        return this.#vm.save_state();
+    }
+
+    loadState (data: Uint8Array) {
+        this.#vm.load_state(data);
+    }
+
+    readMemory (address: number): number {
+        return this.#vm.read(address);
+    }
+
+    watchMemory (watches: MemoryWatch[]) {
+        this.#watches = watches;
+        this.#watchValues.clear();
+        // Snapshot current values
+        for (const w of watches) {
+            this.#watchValues.set(w.address, this.#vm.read(w.address));
+        }
+    }
+
+    private pollWatches () {
+        if (this.#watches.length === 0) return;
+
+        const changes: MemoryChangeEvent[] = [];
+        for (const w of this.#watches) {
+            const newValue = this.#vm.read(w.address);
+            const oldValue = this.#watchValues.get(w.address)!;
+            if (newValue !== oldValue) {
+                changes.push({ address: w.address, name: w.name, oldValue, newValue });
+                this.#watchValues.set(w.address, newValue);
+            }
+        }
+
+        if (changes.length > 0) {
+            this.onMemoryChange?.(changes);
+
+            // Fire onScreenChange for screen-transition-related watches
+            if (this.onScreenChange) {
+                const screenKeys = ['gameMode', 'playerState', 'areaType', 'screenPage',
+                                     'currentWorld', 'currentLevel', 'warpZone',
+                                     'altEntrance', 'areaStyle', 'screenRoutine'];
+                const isScreenChange = changes.some(c => screenKeys.includes(c.name));
+                if (isScreenChange) {
+                    const values: Record<string, number> = {};
+                    for (const w of this.#watches) {
+                        values[w.name] = this.#watchValues.get(w.address)!;
+                    }
+                    const trigger = changes.find(c => screenKeys.includes(c.name))!;
+                    this.onScreenChange({ type: trigger.name, values });
+                }
+            }
+        }
+    }
+
     private cycle (fn) {
         try {
             // this.vm.update_controllers(this.inputs);
@@ -85,6 +158,7 @@ export class Nes {
             this.render();
             this.audio.analyze();
             this.audio.queue(this.#vm.get_audio());
+            this.pollWatches();
         } catch (err) {
             // Don't call stop() here, because the original error will already be caught by the panic hook
             console.error(err);
@@ -126,6 +200,8 @@ export class Nes {
         return this.#stats.stats();
     }
 }
+
+export type { MemoryWatch, MemoryChangeEvent };
 
 export {
     Button,

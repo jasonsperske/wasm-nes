@@ -53,6 +53,9 @@ impl super::Mapper for Mapper003 {
         None
     }
 
+    fn save_state (&self) -> Vec<u8> { vec![self.chr_bank] }
+    fn load_state (&mut self, data: &[u8]) { if !data.is_empty() { self.chr_bank = data[0]; } }
+
     fn get_current_prg (&self, prg_rom: &Vec<u8>) -> Vec<Bank> {
         vec![Bank { number: 0, size: prg_rom.len() }]
     }

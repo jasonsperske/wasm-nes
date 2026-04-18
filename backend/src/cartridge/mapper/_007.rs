@@ -55,6 +55,30 @@ impl super::Mapper for Mapper007 {
         self.mirroring
     }
 
+    fn save_state (&self) -> Vec<u8> {
+        vec![self.prg_bank, match self.mirroring {
+            None => 0xFF,
+            Some(Mirroring::OneScreenLower) => 0,
+            Some(Mirroring::OneScreenUpper) => 1,
+            Some(Mirroring::Horizontal) => 2,
+            Some(Mirroring::Vertical) => 3,
+            Some(Mirroring::FourScreen) => 4,
+        }]
+    }
+    fn load_state (&mut self, data: &[u8]) {
+        if data.len() >= 2 {
+            self.prg_bank = data[0];
+            self.mirroring = match data[1] {
+                0 => Some(Mirroring::OneScreenLower),
+                1 => Some(Mirroring::OneScreenUpper),
+                2 => Some(Mirroring::Horizontal),
+                3 => Some(Mirroring::Vertical),
+                4 => Some(Mirroring::FourScreen),
+                _ => None,
+            };
+        }
+    }
+
     fn get_current_prg (&self, _prg_rom: &Vec<u8>) -> Vec<Bank> {
         vec![Bank { number: self.prg_bank, size: Mapper007::PRG_WINDOW }]
     }

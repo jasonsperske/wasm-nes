@@ -23,6 +23,9 @@ pub trait Mapper {
     fn peek_prg (&self, address: u16, prg_ram: &Vec<u8>, prg_rom: &Vec<u8>) -> Option<u8>;
     fn write_prg (&mut self, address: u16, data: u8, prg_ram: &mut Vec<u8>);
     fn get_mirroring (&self) -> Option<cartridge::Mirroring>;
+    // Save/load state
+    fn save_state (&self) -> Vec<u8>;
+    fn load_state (&mut self, data: &[u8]);
     // Debug utilities
     fn get_current_prg (&self, prg_rom: &Vec<u8>) -> Vec<cartridge::Bank>;
     fn get_current_chr (&self, chr: &Vec<u8>) -> Vec<cartridge::Bank>;

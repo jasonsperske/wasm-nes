@@ -143,6 +143,16 @@ impl super::Mapper for Mapper001 {
         }
     }
 
+    fn save_state (&self) -> Vec<u8> {
+        vec![self.prg_bank, self.chr_bank_0, self.chr_bank_1, self.load, self.ctrl]
+    }
+    fn load_state (&mut self, data: &[u8]) {
+        if data.len() >= 5 {
+            self.prg_bank = data[0]; self.chr_bank_0 = data[1]; self.chr_bank_1 = data[2];
+            self.load = data[3]; self.ctrl = data[4];
+        }
+    }
+
     fn get_current_prg (&self, prg_rom: &Vec<u8>) -> Vec<Bank> {
         match (self.ctrl & 0b0000_1100) >> 2 {
             0b00 | 0b01 => vec![

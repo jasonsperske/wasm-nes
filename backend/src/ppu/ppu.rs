@@ -80,14 +80,14 @@ pub struct Ppu {
     pub scanline: u16,
     pub framebuffer: Vec<u8>, // 512x480 -> 256x240 (32x30 = 960 tiles)
     pub frame: usize,
-    read_buffer: u8,
+    pub(crate) read_buffer: u8,
     pub clock: ClockDivider,
 
     // Background
-    cur_address: u16, // loopy_v
-    tmp_address: u16, // loopy_t, top-left corner
-    scroll_x_fine: u8, // Fine X offset (0-7)
-    write_latch: bool,
+    pub(crate) cur_address: u16, // loopy_v
+    pub(crate) tmp_address: u16, // loopy_t, top-left corner
+    pub(crate) scroll_x_fine: u8, // Fine X offset (0-7)
+    pub(crate) write_latch: bool,
     pattern_tile_id: u8,
     pattern_latch_hi: u8,
     pattern_latch_lo: u8,
@@ -96,14 +96,14 @@ pub struct Ppu {
     palette_latch: u8,
     palette_shift_hi: u16,
     palette_shift_lo: u16,
-    
+
     // Sprites
     pub oam: Vec<u8>, // Sprite RAM: 64 * 4 bytes (Y, tile #, attribute, X)
     oam_index: u8,
     oam_index_overflowed: bool,
     oam_secondary: [u8; 32], // Sprites to be rendered on next scanline (max 8): 8 * 4 bytes
     oam_secondary_index: u8,
-    oam_address: u8,
+    pub(crate) oam_address: u8,
     sprite_shift_hi: [u8; 8],
     sprite_shift_lo: [u8; 8],
     sprite_attributes: [u8; 8],

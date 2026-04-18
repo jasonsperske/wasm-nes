@@ -56,6 +56,11 @@ impl super::Mapper for Mapper066 {
         None
     }
 
+    fn save_state (&self) -> Vec<u8> { vec![self.prg_bank, self.chr_bank] }
+    fn load_state (&mut self, data: &[u8]) {
+        if data.len() >= 2 { self.prg_bank = data[0]; self.chr_bank = data[1]; }
+    }
+
     fn get_current_prg (&self, _prg_rom: &Vec<u8>) -> Vec<Bank> {
         vec![Bank { number: self.prg_bank, size: Mapper066::PRG_WINDOW }]
     }

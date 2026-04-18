@@ -171,9 +171,7 @@ impl Apu {
      * Flush the sound sample buffer and returns its content
      */
     pub fn flush (&mut self) -> Vec<f32> {
-        let buffer: Vec<f32> = self.buffer.to_vec();
-        self.buffer.clear();
-        buffer
+        std::mem::take(&mut self.buffer)
     }
 
     pub fn read (&mut self, address: u16) -> u8 {

@@ -1,8 +1,3 @@
-use wee_alloc::WeeAlloc;
-
-#[global_allocator]
-static GLOBAL: WeeAlloc = WeeAlloc::INIT;
-
 pub mod apu;
 pub mod bus;
 pub mod cartridge;
