@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "build:back": "cd backend && wasm-pack build --release --target web --out-name index",
-    "build:front": "esbuild frontend/index.ts --bundle --outdir=dist --sourcemap --format=esm --loader:.wasm=dataurl --external:react",
+    "build:front": "esbuild frontend/index.ts --bundle --outdir=dist --sourcemap --format=esm --loader:.wasm=dataurl --external:react && cp frontend/index.html frontend/editor.html frontend/rom-config.json dist/",
     "build": "npm run build:back && npm run build:front",
     "watch:back": "cd backend && cargo watch -i pkg -s 'wasm-pack build --profiling --target web --out-name index'",
     "watch:front": "esbuild frontend/index.ts --bundle --outdir=dist --sourcemap --format=esm --loader:.wasm=dataurl --external:react --watch",
@@ -15,6 +15,7 @@
     "test:back": "cd backend && cargo test -- --show-output",
     "lint:back": "cd backend && cargo clippy",
     "disasm": "node tools/disasm.mjs",
+    "generate-config": "node tools/generate-config.mjs",
     "prepack": "npm run build"
   },
   "dependencies": {

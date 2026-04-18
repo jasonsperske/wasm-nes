@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NES Editor</title>
+    <style>
+        @font-face {
+            font-family: 'PressStart';
+            src: url('https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2') format('woff2');
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0f0f23;
+            color: #cccccc;
+            font-family: 'Press Start 2P', 'PressStart', monospace;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.03) 2px,
+                rgba(0, 0, 0, 0.03) 4px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .main {
+            display: flex;
+            width: 100%;
+            max-width: 1100px;
+            gap: 16px;
+            padding: 16px;
+            align-items: flex-start;
+        }
+
+        .screen-wrapper {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .tv-frame {
+            background: #1a1a2e;
+            border: 4px solid #2a2a4a;
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow:
+                0 0 20px rgba(0, 0, 0, 0.5),
+                inset 0 0 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .screen-container {
+            position: relative;
+            background: #000;
+            border: 2px solid #111;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            aspect-ratio: 256 / 240;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        .screen-container::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(
+                ellipse at center,
+                transparent 60%,
+                rgba(0, 0, 0, 0.4) 100%
+            );
+            pointer-events: none;
+        }
+
+        .power-led {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            font-size: 7px;
+            color: #555;
+        }
+
+        .led {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #331111;
+            border: 1px solid #222;
+            transition: all 0.3s;
+        }
+
+        .led.on {
+            background: #ff3333;
+            box-shadow: 0 0 6px #ff3333, 0 0 12px #ff000066;
+        }
+
+        /* Start screen overlay */
+        .start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            z-index: 10;
+            gap: 20px;
+        }
+
+        .start-screen.hidden {
+            display: none;
+        }
+
+        .start-title {
+            font-size: 14px;
+            color: #fcfcfc;
+            text-shadow: 2px 2px 0 #444;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .start-prompt {
+            font-size: 8px;
+            color: #888;
+            animation: blink 1.2s step-end infinite;
+        }
+
+        .rom-label {
+            position: relative;
+            display: inline-block;
+            font-size: 9px;
+            padding: 10px 20px;
+            background: #2a2a4a;
+            color: #aaa;
+            border: 2px solid #4a4a6a;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: inherit;
+            letter-spacing: 1px;
+        }
+
+        .rom-label:hover {
+            background: #3a3a5a;
+            color: #fff;
+            border-color: #6a6a8a;
+        }
+
+        .rom-input {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .error-msg {
+            font-size: 8px;
+            color: #ff4444;
+            max-width: 80%;
+            text-align: center;
+            line-height: 1.6;
+            display: none;
+        }
+
+        .error-msg.visible {
+            display: block;
+        }
+
+        /* Sidebar panel */
+        .panel {
+            width: 320px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .panel-section {
+            background: #1a1a2e;
+            border: 2px solid #2a2a4a;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .panel-title {
+            font-size: 8px;
+            color: #666;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #2a2a4a;
+            padding-bottom: 6px;
+        }
+
+        .watch-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 7px;
+            line-height: 2.2;
+            color: #555;
+        }
+
+        .watch-value {
+            color: #888;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .watch-value.changed {
+            color: #ff0;
+            transition: color 0.3s;
+        }
+
+        .event-log {
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 7px;
+            line-height: 1.8;
+            color: #555;
+        }
+
+        .event-log .entry {
+            padding: 2px 0;
+            border-bottom: 1px solid #1a1a2e;
+        }
+
+        .event-log .entry.pipe {
+            color: #0f0;
+        }
+
+        .event-log .entry.save {
+            color: #ff0;
+        }
+
+        .saves-list {
+            font-size: 7px;
+            color: #555;
+            line-height: 2.2;
+        }
+
+        .save-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 2px 0;
+            border-bottom: 1px solid #1a1a2e;
+        }
+
+        .save-link {
+            color: #6af;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .save-link:hover {
+            color: #8cf;
+        }
+
+        .save-delete {
+            color: #f44;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-family: inherit;
+            font-size: 7px;
+        }
+
+        .tv-frame.running {
+            box-shadow:
+                0 0 20px rgba(0, 0, 0, 0.5),
+                inset 0 0 30px rgba(0, 0, 0, 0.3),
+                0 0 40px rgba(100, 100, 255, 0.05);
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script type="importmap">
+        { "imports": { "@kabukki/wasm-nes": "./index.js" } }
+    </script>
+</head>
+<body>
+    <div class="main">
+        <div class="screen-wrapper">
+            <div class="tv-frame" id="tvFrame">
+                <div class="screen-container">
+                    <canvas id="screen"></canvas>
+                    <div class="start-screen" id="startScreen">
+                        <div class="start-title" id="startTitle">LOADING...</div>
+                        <label class="rom-label" id="romLabel" style="display: none">
+                            LOAD ROM
+                            <input class="rom-input" type="file" id="romInput" accept=".nes">
+                        </label>
+                        <div class="start-prompt" id="startPrompt" style="display: none">SELECT A .NES FILE</div>
+                        <div class="error-msg" id="errorMsg"></div>
+                    </div>
+                </div>
+                <div class="power-led">
+                    <div class="led" id="powerLed"></div>
+                    <span>POWER</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-section">
+                <div class="panel-title">-- RAM WATCHES --</div>
+                <div id="watches"></div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">-- EVENTS --</div>
+                <div class="event-log" id="eventLog"></div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">-- SAVE STATES --</div>
+                <div class="saves-list" id="savesList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { Nes, Button } from '@kabukki/wasm-nes';
+
+        const canvas = document.getElementById('screen');
+        canvas.width = Nes.VIDEO_WIDTH;
+        canvas.height = Nes.VIDEO_HEIGHT;
+
+        const startScreen = document.getElementById('startScreen');
+        const romInput = document.getElementById('romInput');
+        const powerLed = document.getElementById('powerLed');
+        const tvFrame = document.getElementById('tvFrame');
+        const errorMsg = document.getElementById('errorMsg');
+        const startTitle = document.getElementById('startTitle');
+        const startPrompt = document.getElementById('startPrompt');
+        const romLabel = document.getElementById('romLabel');
+        const watchesEl = document.getElementById('watches');
+        const eventLog = document.getElementById('eventLog');
+        const savesList = document.getElementById('savesList');
+
+        let emulator = null;
+        let config = null;
+
+        const keyMap = {
+            ArrowUp:    [0, Button.Up],
+            ArrowDown:  [0, Button.Down],
+            ArrowLeft:  [0, Button.Left],
+            ArrowRight: [0, Button.Right],
+            z:          [0, Button.A],
+            Z:          [0, Button.A],
+            x:          [0, Button.B],
+            X:          [0, Button.B],
+            Enter:      [0, Button.Start],
+            Shift:      [0, Button.Select],
+        };
+
+        // Load rom-config.json
+        try {
+            const res = await fetch('./rom-config.json');
+            if (!res.ok) throw new Error(`${res.status}`);
+            config = await res.json();
+            document.title = `NES Editor - ${config.name}`;
+        } catch (err) {
+            console.error('Failed to load rom-config.json:', err);
+            config = { name: 'Unknown ROM', watches: [], events: [] };
+        }
+
+        // Parse hex address strings from config
+        function addr(s) { return typeof s === 'string' ? parseInt(s, 16) : s; }
+
+        // Build watches from config
+        const watches = config.watches.map(w => ({ address: addr(w.address), name: w.name }));
+
+        const watchValueEls = {};
+        for (const w of config.watches) {
+            const a = addr(w.address);
+            const row = document.createElement('div');
+            row.className = 'watch-row';
+            row.title = w.description || '';
+            row.innerHTML = `<span>${w.name} ($${a.toString(16).padStart(4,'0')})</span><span class="watch-value" id="wv-${w.name}">--</span>`;
+            watchesEl.appendChild(row);
+            watchValueEls[w.name] = row.querySelector('.watch-value');
+        }
+
+        if (!config.watches.length) {
+            watchesEl.textContent = 'No watches configured';
+        }
+
+        function addEvent(text, cls) {
+            const entry = document.createElement('div');
+            entry.className = 'entry ' + (cls || '');
+            entry.textContent = text;
+            eventLog.prepend(entry);
+            while (eventLog.children.length > 50) eventLog.lastChild.remove();
+        }
+
+        // Collect all save key prefixes from config events
+        function getSaveKeyPrefixes() {
+            return (config.events || [])
+                .filter(e => e.saveState)
+                .map(e => e.saveState.keyTemplate.split('{')[0]);
+        }
+
+        function refreshSavesList() {
+            savesList.innerHTML = '';
+            const prefixes = getSaveKeyPrefixes();
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (!prefixes.some(p => key.startsWith(p))) continue;
+                const item = document.createElement('div');
+                item.className = 'save-item';
+                item.innerHTML = `<a class="save-link" href="index.html?door=${encodeURIComponent(key)}">${key}</a><button class="save-delete" data-key="${key}">DEL</button>`;
+                savesList.appendChild(item);
+            }
+            if (!savesList.children.length) {
+                savesList.textContent = 'No save states yet';
+            }
+            savesList.querySelectorAll('.save-delete').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    localStorage.removeItem(btn.dataset.key);
+                    refreshSavesList();
+                });
+            });
+        }
+
+        // Build event handlers from config
+        function buildEventHandlers() {
+            const activeTimers = new Map();
+
+            return (changes) => {
+                for (const c of changes) {
+                    // Update watch display
+                    const el = watchValueEls[c.name];
+                    if (el) {
+                        el.textContent = c.newValue;
+                        el.classList.add('changed');
+                        setTimeout(() => el.classList.remove('changed'), 300);
+                    }
+
+                    // Check each configured event
+                    for (const event of (config.events || [])) {
+                        const trigger = event.trigger;
+                        if (c.name !== trigger.watch) continue;
+                        if (trigger.equals !== undefined && c.newValue !== trigger.equals) continue;
+                        if (activeTimers.has(event.name)) continue;
+
+                        addEvent(event.label || event.name, 'pipe');
+
+                        if (event.saveState) {
+                            let frames = 0;
+                            const delay = event.saveState.delayFrames || 0;
+                            const timer = () => {
+                                frames++;
+                                if (frames >= delay) {
+                                    // Read values for key template
+                                    const values = {};
+                                    for (const r of event.saveState.reads) {
+                                        values[r.token] = emulator.readMemory(addr(r.address));
+                                    }
+                                    const key = event.saveState.keyTemplate.replace(
+                                        /\{(\w+)\}/g, (_, token) => values[token] ?? '?'
+                                    );
+
+                                    const state = emulator.saveState();
+                                    const encoded = btoa(String.fromCharCode(...state));
+                                    localStorage.setItem(key, encoded);
+
+                                    addEvent(`Saved: ${key} (${state.length}B)`, 'save');
+                                    refreshSavesList();
+
+                                    emulator.onCycle = null;
+                                    activeTimers.delete(event.name);
+                                }
+                            };
+                            activeTimers.set(event.name, true);
+                            emulator.onCycle = timer;
+                        }
+                    }
+                }
+            };
+        }
+
+        function showFilePicker() {
+            startTitle.textContent = 'INSERT CARTRIDGE';
+            romLabel.style.display = '';
+            startPrompt.style.display = '';
+        }
+
+        let pendingRom = null;
+
+        async function startEmulator(romData) {
+            errorMsg.classList.remove('visible');
+            try {
+                if (emulator) emulator.stop();
+
+                const rom = new Uint8Array(romData);
+                emulator = await Nes.new(rom);
+                emulator.canvas = canvas;
+                emulator.audio.fix();
+
+                emulator.watchMemory(watches);
+                emulator.onMemoryChange = buildEventHandlers();
+
+                // Snapshot initial values
+                for (const w of watches) {
+                    const el = watchValueEls[w.name];
+                    if (el) el.textContent = emulator.readMemory(w.address);
+                }
+
+                refreshSavesList();
+                addEvent(`Loaded: ${config.name}`, '');
+                emulator.start();
+
+                startScreen.classList.add('hidden');
+                powerLed.classList.add('on');
+                tvFrame.classList.add('running');
+            } catch (err) {
+                console.error(err);
+                errorMsg.textContent = 'BAD ROM: ' + (err.message || 'UNKNOWN ERROR');
+                errorMsg.classList.add('visible');
+                showFilePicker();
+            }
+        }
+
+        function showPressStart() {
+            startTitle.textContent = 'PRESS START';
+            startPrompt.textContent = 'CLICK OR PRESS ANY KEY';
+            startPrompt.style.display = '';
+            romLabel.style.display = 'none';
+        }
+
+        function onUserInteraction() {
+            if (!pendingRom) return;
+            const romData = pendingRom;
+            pendingRom = null;
+            document.removeEventListener('click', onUserInteraction);
+            document.removeEventListener('keydown', onUserInteraction);
+            startEmulator(romData);
+        }
+
+        try {
+            const res = await fetch('./rom.nes');
+            if (!res.ok) throw new Error();
+            pendingRom = await res.arrayBuffer();
+            showPressStart();
+            document.addEventListener('click', onUserInteraction);
+            document.addEventListener('keydown', onUserInteraction);
+        } catch {
+            showFilePicker();
+        }
+
+        romInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            pendingRom = null;
+            document.removeEventListener('click', onUserInteraction);
+            document.removeEventListener('keydown', onUserInteraction);
+            await startEmulator(await file.arrayBuffer());
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!emulator) return;
+            if (e.key === 'Escape') { emulator.reset(); return; }
+            const mapping = keyMap[e.key];
+            if (mapping) { e.preventDefault(); emulator.input(mapping[0], mapping[1], true); }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (!emulator) return;
+            const mapping = keyMap[e.key];
+            if (mapping) { e.preventDefault(); emulator.input(mapping[0], mapping[1], false); }
+        });
+    </script>
+</body>
+</html>
