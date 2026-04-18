@@ -1,0 +1,29 @@
+{
+  "name": "Super Mario Bros",
+  "mapper": 0,
+  "watches": [
+    { "address": "0x000E", "name": "playerState", "description": "Player state (0=loading, 1=alive, 2=dead, 3=entering_pipe, 6=climbing, 7=entering_area, 8=normal)" },
+    { "address": "0x0700", "name": "gameMode", "description": "Game mode (0=title, 1=playing, 2=victory)" },
+    { "address": "0x0747", "name": "areaType", "description": "Area type (0=water, 1=ground, 2=underground, 3=castle)" },
+    { "address": "0x0750", "name": "currentWorld", "description": "Current world (0-7)" },
+    { "address": "0x0751", "name": "currentLevel", "description": "Current level (0-3)" },
+    { "address": "0x0756", "name": "levelNumber", "description": "Level number" },
+    { "address": "0x0770", "name": "screenPage", "description": "Screen left page location" }
+  ],
+  "saveState": {
+    "keyTemplate": "save-w{currentWorld}-l{currentLevel}-a{areaType}-n{levelNumber}",
+    "reads": [
+      { "address": "0x0750", "token": "currentWorld" },
+      { "address": "0x0751", "token": "currentLevel" },
+      { "address": "0x0747", "token": "areaType" },
+      { "address": "0x0756", "token": "levelNumber" }
+    ]
+  },
+  "events": [
+    {
+      "name": "pipeEntry",
+      "label": "Mario entered a pipe",
+      "trigger": { "watch": "playerState", "equals": 3 }
+    }
+  ]
+}

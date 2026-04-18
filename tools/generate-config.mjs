@@ -9,29 +9,39 @@
  *   node tools/generate-config.mjs rom.nes --call -o config.json  # Call API and write to file
  */
 
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
+import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const projectRoot = resolve(__dirname, '..');
 const disasmPath = resolve(__dirname, 'disasm.mjs');
 
 const args = process.argv.slice(2);
 if (args.length === 0) {
-    console.log('Usage: node tools/generate-config.mjs <rom.nes> [--call] [-o output.json]');
+    console.log('Usage: node tools/generate-config.mjs <rom.nes> [--call]');
     console.log('');
-    console.log('  Without --call: prints a prompt to stdout. Paste into Claude to get config.');
-    console.log('  With --call:    calls the Claude API directly (requires ANTHROPIC_API_KEY env var).');
-    console.log('  With -o:        writes the result to a file instead of stdout.');
+    console.log('  Without --call: prints a prompt to stdout. Paste into Claude to get config,');
+    console.log('                  then save it to config/<md5>/rom-config.json.');
+    console.log('  With --call:    calls the Claude API directly (requires ANTHROPIC_API_KEY env var)');
+    console.log('                  and writes to config/<md5>/rom-config.json automatically.');
     process.exit(0);
 }
 
 const romPath = args[0];
 const shouldCall = args.includes('--call');
-const outIdx = args.indexOf('-o');
-const outPath = outIdx >= 0 ? args[outIdx + 1] : null;
+
+// Compute MD5 hash of the ROM
+const romBytes = readFileSync(romPath);
+const romHash = createHash('md5').update(romBytes).digest('hex');
+const configDir = resolve(projectRoot, 'config', romHash);
+
+console.error(`ROM: ${romPath}`);
+console.error(`MD5: ${romHash}`);
+console.error(`Config dir: config/${romHash}/`);
 
 // Run disassembler to get header + vectors + RAM refs
 const header = execSync(`node "${disasmPath}" "${romPath}" --header --vectors`, { encoding: 'utf-8' });
@@ -46,25 +56,27 @@ const configSchema = JSON.stringify({
     watches: [
         { address: "0xNNNN", name: "camelCaseName", description: "What this address tracks" }
     ],
+    saveState: {
+        keyTemplate: "save-{token1}-{token2}",
+        reads: [
+            { address: "0xNNNN", token: "token1" }
+        ]
+    },
     events: [
         {
             name: "eventName",
             label: "Human readable event description",
-            trigger: { watch: "watchName", equals: 0 },
-            saveState: {
-                delayFrames: 36,
-                keyTemplate: "prefix-{token1}-{token2}",
-                reads: [
-                    { address: "0xNNNN", token: "token1" }
-                ]
-            }
+            trigger: { watch: "watchName", equals: 0 }
         }
     ]
 }, null, 2);
 
 const prompt = `You are analyzing a disassembled NES ROM to generate a rom-config.json file for an emulator editor tool.
 
-The config defines RAM addresses to watch during gameplay and events that trigger save states (e.g., when the player enters a pipe, door, or transitions between screens).
+The config defines:
+- RAM addresses to watch during gameplay (displayed live in the editor)
+- A saveState section that defines how manual save states are named (using tokens read from RAM)
+- Events that fire when watched RAM values change (logged in the editor UI)
 
 ## ROM Header & Vectors
 \`\`\`
@@ -92,11 +104,12 @@ ${ramRefs}
    - Area type (overworld, underground, underwater, castle, etc.)
    - Screen position or scroll state
    - Any addresses related to screen transitions, warp zones, or door entry
-3. **Define events** that detect screen transitions (pipes, doors, stairs, warp zones, level transitions). For each event:
+3. **Define a saveState section** for manual saves (triggered by pressing S):
+   - A keyTemplate using tokens that produce unique, human-readable names
+   - The RAM addresses to read for each token in the template
+4. **Define events** that detect notable game state changes (pipes, doors, deaths, level transitions, warp zones). Events are logged in the UI — they do NOT auto-save. For each event:
    - Which watch to monitor and what value triggers it
-   - A delay in frames before saving (typically 30-60 frames to let the transition animate)
-   - A key template using tokens read from RAM at save time
-   - The RAM addresses to read for each token
+   - A human-readable label
 
 ## Output Format
 
@@ -107,20 +120,15 @@ Guidelines:
 - Use hex strings for addresses (e.g., "0x000E")
 - Use camelCase for watch names and event names
 - Include 5-10 watches covering the most important game state
-- Include at least one event for screen transitions
-- The keyTemplate should produce unique, human-readable save state names
-- delayFrames should be 30-60 (0.5-1 second at 60fps)
+- Include at least 2-3 events for notable state changes
+- The saveState.keyTemplate should produce unique names using world/level/area tokens
 - Only include events you're confident about based on the RAM analysis`;
 
 if (!shouldCall) {
-    if (outPath) {
-        writeFileSync(outPath, prompt);
-        console.log(`Prompt written to ${outPath}`);
-    } else {
-        console.log(prompt);
-    }
+    console.log(prompt);
     console.error('\n---');
     console.error('Paste the above into Claude to generate rom-config.json.');
+    console.error(`Then save the result to: config/${romHash}/rom-config.json`);
     console.error('Or use --call flag to call the Claude API directly.');
     process.exit(0);
 }
@@ -171,9 +179,10 @@ try {
     process.exit(1);
 }
 
-if (outPath) {
-    writeFileSync(outPath, json + '\n');
-    console.error(`Config written to ${outPath}`);
-} else {
-    console.log(json);
+// Write to config/<md5>/rom-config.json
+if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
 }
+const outPath = resolve(configDir, 'rom-config.json');
+writeFileSync(outPath, json + '\n');
+console.error(`Config written to config/${romHash}/rom-config.json`);

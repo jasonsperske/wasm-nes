@@ -291,11 +291,37 @@
             font-size: 7px;
         }
 
+        .export-btn {
+            margin-top: 8px;
+            width: 100%;
+            font-size: 7px;
+            padding: 6px;
+            background: #2a2a4a;
+            color: #aaa;
+            border: 1px solid #4a4a6a;
+            cursor: pointer;
+            font-family: inherit;
+            letter-spacing: 1px;
+        }
+
+        .export-btn:hover {
+            background: #3a3a5a;
+            color: #fff;
+        }
+
         .tv-frame.running {
             box-shadow:
                 0 0 20px rgba(0, 0, 0, 0.5),
                 inset 0 0 30px rgba(0, 0, 0, 0.3),
                 0 0 40px rgba(100, 100, 255, 0.05);
+        }
+
+        .bottom-bar {
+            padding: 16px;
+            font-size: 7px;
+            color: #333;
+            text-align: center;
+            letter-spacing: 1px;
         }
 
         @keyframes blink { 50% { opacity: 0; } }
@@ -343,9 +369,12 @@
             <div class="panel-section">
                 <div class="panel-title">-- SAVE STATES --</div>
                 <div class="saves-list" id="savesList"></div>
+                <button class="export-btn" id="exportBtn" style="display:none">EXPORT JSON</button>
             </div>
         </div>
     </div>
+
+    <div class="bottom-bar">Fork of <a href="https://github.com/kabukki/wasm-nes" style="color:#555">wasm-nes</a> by <a href="http://lucien.le-roux.dev/" style="color:#555">Lucien Le Roux</a></div>
 
     <script type="module">
         import { Nes, Button } from '@kabukki/wasm-nes';
@@ -365,6 +394,7 @@
         const watchesEl = document.getElementById('watches');
         const eventLog = document.getElementById('eventLog');
         const savesList = document.getElementById('savesList');
+        const exportBtn = document.getElementById('exportBtn');
 
         let emulator = null;
         let config = null;
@@ -382,36 +412,87 @@
             Shift:      [0, Button.Select],
         };
 
-        // Load rom-config.json
-        try {
-            const res = await fetch('./rom-config.json');
-            if (!res.ok) throw new Error(`${res.status}`);
-            config = await res.json();
-            document.title = `NES Editor - ${config.name}`;
-        } catch (err) {
-            console.error('Failed to load rom-config.json:', err);
-            config = { name: 'Unknown ROM', watches: [], events: [] };
+        // MD5 hash (SubtleCrypto doesn't support MD5, so use a minimal implementation)
+        async function md5Hex(buffer) {
+            // Minimal MD5 for ROM hashing
+            const k = new Uint32Array(64);
+            for (let i = 0; i < 64; i++) k[i] = Math.floor(2**32 * Math.abs(Math.sin(i + 1)));
+            const s = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+                       5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
+                       4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+                       6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+            const bytes = new Uint8Array(buffer);
+            const bitLen = bytes.length * 8;
+            const padLen = (((bytes.length + 8) >>> 6) + 1) << 6;
+            const padded = new Uint8Array(padLen);
+            padded.set(bytes);
+            padded[bytes.length] = 0x80;
+            const view = new DataView(padded.buffer);
+            view.setUint32(padLen - 8, bitLen >>> 0, true);
+            view.setUint32(padLen - 4, (bitLen / 2**32) >>> 0, true);
+            let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+            for (let i = 0; i < padLen; i += 64) {
+                const M = new Uint32Array(16);
+                for (let j = 0; j < 16; j++) M[j] = view.getUint32(i + j * 4, true);
+                let A = a0, B = b0, C = c0, D = d0;
+                for (let j = 0; j < 64; j++) {
+                    let F, g;
+                    if (j < 16) { F = (B & C) | (~B & D); g = j; }
+                    else if (j < 32) { F = (D & B) | (~D & C); g = (5*j+1) % 16; }
+                    else if (j < 48) { F = B ^ C ^ D; g = (3*j+5) % 16; }
+                    else { F = C ^ (B | ~D); g = (7*j) % 16; }
+                    F = (F + A + k[j] + M[g]) >>> 0;
+                    A = D; D = C; C = B;
+                    B = (B + ((F << s[j]) | (F >>> (32 - s[j])))) >>> 0;
+                }
+                a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0;
+                c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
+            }
+            const hex = (v) => Array.from(new Uint8Array(new Uint32Array([v]).buffer))
+                .map(b => b.toString(16).padStart(2, '0')).join('');
+            return hex(a0) + hex(b0) + hex(c0) + hex(d0);
         }
 
         // Parse hex address strings from config
         function addr(s) { return typeof s === 'string' ? parseInt(s, 16) : s; }
 
-        // Build watches from config
-        const watches = config.watches.map(w => ({ address: addr(w.address), name: w.name }));
-
         const watchValueEls = {};
-        for (const w of config.watches) {
-            const a = addr(w.address);
-            const row = document.createElement('div');
-            row.className = 'watch-row';
-            row.title = w.description || '';
-            row.innerHTML = `<span>${w.name} ($${a.toString(16).padStart(4,'0')})</span><span class="watch-value" id="wv-${w.name}">--</span>`;
-            watchesEl.appendChild(row);
-            watchValueEls[w.name] = row.querySelector('.watch-value');
+        let watches = [];
+
+        function buildWatchDisplay() {
+            watchesEl.innerHTML = '';
+            Object.keys(watchValueEls).forEach(k => delete watchValueEls[k]);
+
+            if (!config.watches.length) {
+                watchesEl.textContent = 'No watches configured';
+                return;
+            }
+            for (const w of config.watches) {
+                const a = addr(w.address);
+                const row = document.createElement('div');
+                row.className = 'watch-row';
+                row.title = w.description || '';
+                row.innerHTML = `<span>${w.name} ($${a.toString(16).padStart(4,'0')})</span><span class="watch-value">--</span>`;
+                watchesEl.appendChild(row);
+                watchValueEls[w.name] = row.querySelector('.watch-value');
+            }
+            watches = config.watches.map(w => ({ address: addr(w.address), name: w.name }));
         }
 
-        if (!config.watches.length) {
-            watchesEl.textContent = 'No watches configured';
+        async function loadConfig(romBuffer) {
+            const hash = await md5Hex(romBuffer);
+            console.log(`ROM MD5: ${hash}`);
+            try {
+                const res = await fetch(`./config/${hash}/rom-config.json`);
+                if (!res.ok) throw new Error(`${res.status}`);
+                config = await res.json();
+                console.log(`Loaded config for "${config.name}" from config/${hash}/`);
+            } catch {
+                console.warn(`No config found at config/${hash}/rom-config.json — using empty config`);
+                config = { name: 'Unknown ROM', watches: [], events: [] };
+            }
+            document.title = `NES Editor - ${config.name}`;
+            buildWatchDisplay();
         }
 
         function addEvent(text, cls) {
@@ -422,27 +503,34 @@
             while (eventLog.children.length > 50) eventLog.lastChild.remove();
         }
 
-        // Collect all save key prefixes from config events
-        function getSaveKeyPrefixes() {
-            return (config.events || [])
-                .filter(e => e.saveState)
-                .map(e => e.saveState.keyTemplate.split('{')[0]);
+        function getSaveKeyPrefix() {
+            if (!config.saveState) return 'save-';
+            return config.saveState.keyTemplate.split('{')[0];
         }
 
         function refreshSavesList() {
             savesList.innerHTML = '';
-            const prefixes = getSaveKeyPrefixes();
+            const prefix = getSaveKeyPrefix();
+            let count = 0;
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (!prefixes.some(p => key.startsWith(p))) continue;
+                if (!key.startsWith(prefix)) continue;
+                count++;
                 const item = document.createElement('div');
                 item.className = 'save-item';
-                item.innerHTML = `<a class="save-link" href="index.html?door=${encodeURIComponent(key)}">${key}</a><button class="save-delete" data-key="${key}">DEL</button>`;
+                item.innerHTML = `<a class="save-link" href="#" data-door="${key}">${key}</a><button class="save-delete" data-key="${key}">DEL</button>`;
                 savesList.appendChild(item);
             }
-            if (!savesList.children.length) {
-                savesList.textContent = 'No save states yet';
+            if (!count) {
+                savesList.textContent = 'No save states yet. Press S to save.';
             }
+            exportBtn.style.display = count ? '' : 'none';
+            savesList.querySelectorAll('.save-link').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    loadSaveState(link.dataset.door);
+                });
+            });
             savesList.querySelectorAll('.save-delete').forEach(btn => {
                 btn.addEventListener('click', () => {
                     localStorage.removeItem(btn.dataset.key);
@@ -451,10 +539,123 @@
             });
         }
 
-        // Build event handlers from config
-        function buildEventHandlers() {
-            const activeTimers = new Map();
+        exportBtn.addEventListener('click', () => {
+            const prefix = getSaveKeyPrefix();
+            const states = {};
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (!key.startsWith(prefix)) continue;
+                states[key] = localStorage.getItem(key);
+            }
+            const json = JSON.stringify(states, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'save-states.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
 
+        // Compression helpers using native CompressionStream (deflate)
+        const MAGIC = [0x4E, 0x45, 0x53, 0x53]; // "NESS" - start of uncompressed "NESSAVE1"
+
+        async function compressBytes(data) {
+            const cs = new CompressionStream('deflate');
+            const writer = cs.writable.getWriter();
+            writer.write(data);
+            writer.close();
+            const reader = cs.readable.getReader();
+            const chunks = [];
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+            let len = 0;
+            for (const c of chunks) len += c.length;
+            const result = new Uint8Array(len);
+            let off = 0;
+            for (const c of chunks) { result.set(c, off); off += c.length; }
+            return result;
+        }
+
+        async function decompressBytes(data) {
+            const ds = new DecompressionStream('deflate');
+            const writer = ds.writable.getWriter();
+            writer.write(data);
+            writer.close();
+            const reader = ds.readable.getReader();
+            const chunks = [];
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+            let len = 0;
+            for (const c of chunks) len += c.length;
+            const result = new Uint8Array(len);
+            let off = 0;
+            for (const c of chunks) { result.set(c, off); off += c.length; }
+            return result;
+        }
+
+        function toBase64(bytes) {
+            let s = '';
+            for (let i = 0; i < bytes.length; i += 8192) {
+                s += String.fromCharCode(...bytes.subarray(i, i + 8192));
+            }
+            return btoa(s);
+        }
+
+        function fromBase64(str) {
+            return Uint8Array.from(atob(str), c => c.charCodeAt(0));
+        }
+
+        function isUncompressed(bytes) {
+            return bytes.length >= 4 &&
+                bytes[0] === MAGIC[0] && bytes[1] === MAGIC[1] &&
+                bytes[2] === MAGIC[2] && bytes[3] === MAGIC[3];
+        }
+
+        async function decodeSaveState(encoded) {
+            const raw = fromBase64(encoded);
+            if (isUncompressed(raw)) return raw;
+            return await decompressBytes(raw);
+        }
+
+        async function loadSaveState(key) {
+            if (!emulator) return;
+            const saved = localStorage.getItem(key);
+            if (!saved) return;
+            const bytes = await decodeSaveState(saved);
+            emulator.loadState(bytes);
+            addEvent(`Loaded: ${key}`, 'save');
+        }
+
+        async function saveCurrentState() {
+            if (!emulator || !config.saveState) return;
+
+            const values = {};
+            for (const r of config.saveState.reads) {
+                values[r.token] = emulator.readMemory(addr(r.address));
+            }
+            const key = config.saveState.keyTemplate.replace(
+                /\{(\w+)\}/g, (_, token) => values[token] ?? '?'
+            );
+
+            const state = emulator.saveState();
+            const compressed = await compressBytes(state);
+            const encoded = toBase64(compressed);
+
+            localStorage.setItem(key, encoded);
+            const ratio = ((1 - compressed.length / state.length) * 100).toFixed(0);
+            addEvent(`Saved: ${key} (${state.length}B -> ${compressed.length}B, -${ratio}%)`, 'save');
+            refreshSavesList();
+        }
+
+        // Build event handlers from config (events fire log entries only)
+        function buildEventHandlers() {
             return (changes) => {
                 for (const c of changes) {
                     // Update watch display
@@ -470,39 +671,7 @@
                         const trigger = event.trigger;
                         if (c.name !== trigger.watch) continue;
                         if (trigger.equals !== undefined && c.newValue !== trigger.equals) continue;
-                        if (activeTimers.has(event.name)) continue;
-
                         addEvent(event.label || event.name, 'pipe');
-
-                        if (event.saveState) {
-                            let frames = 0;
-                            const delay = event.saveState.delayFrames || 0;
-                            const timer = () => {
-                                frames++;
-                                if (frames >= delay) {
-                                    // Read values for key template
-                                    const values = {};
-                                    for (const r of event.saveState.reads) {
-                                        values[r.token] = emulator.readMemory(addr(r.address));
-                                    }
-                                    const key = event.saveState.keyTemplate.replace(
-                                        /\{(\w+)\}/g, (_, token) => values[token] ?? '?'
-                                    );
-
-                                    const state = emulator.saveState();
-                                    const encoded = btoa(String.fromCharCode(...state));
-                                    localStorage.setItem(key, encoded);
-
-                                    addEvent(`Saved: ${key} (${state.length}B)`, 'save');
-                                    refreshSavesList();
-
-                                    emulator.onCycle = null;
-                                    activeTimers.delete(event.name);
-                                }
-                            };
-                            activeTimers.set(event.name, true);
-                            emulator.onCycle = timer;
-                        }
                     }
                 }
             };
@@ -521,13 +690,17 @@
             try {
                 if (emulator) emulator.stop();
 
+                await loadConfig(romData);
+
                 const rom = new Uint8Array(romData);
                 emulator = await Nes.new(rom);
                 emulator.canvas = canvas;
                 emulator.audio.fix();
 
-                emulator.watchMemory(watches);
-                emulator.onMemoryChange = buildEventHandlers();
+                if (watches.length) {
+                    emulator.watchMemory(watches);
+                    emulator.onMemoryChange = buildEventHandlers();
+                }
 
                 // Snapshot initial values
                 for (const w of watches) {
@@ -538,6 +711,12 @@
                 refreshSavesList();
                 addEvent(`Loaded: ${config.name}`, '');
                 emulator.start();
+
+                // Load save state from ?door= query param
+                const doorParam = new URLSearchParams(window.location.search).get('door');
+                if (doorParam) {
+                    loadSaveState(doorParam);
+                }
 
                 startScreen.classList.add('hidden');
                 powerLed.classList.add('on');
@@ -589,6 +768,7 @@
         document.addEventListener('keydown', (e) => {
             if (!emulator) return;
             if (e.key === 'Escape') { emulator.reset(); return; }
+            if (e.key === 's' || e.key === 'S') { saveCurrentState(); return; }
             const mapping = keyMap[e.key];
             if (mapping) { e.preventDefault(); emulator.input(mapping[0], mapping[1], true); }
         });

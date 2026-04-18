@@ -322,7 +322,7 @@
         </div>
     </div>
 
-    <div class="bottom-bar">2026 // WASM-NES</div>
+    <div class="bottom-bar">Fork of <a href="https://github.com/kabukki/wasm-nes" style="color:#555">wasm-nes</a> by <a href="http://lucien.le-roux.dev/" style="color:#555">Lucien Le Roux</a></div>
 
     <script type="module">
         import { Nes, Button } from '@kabukki/wasm-nes';
@@ -357,6 +357,31 @@
             Shift:      [0, Button.Select],
         };
 
+        async function decodeSaveState(encoded) {
+            const raw = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+            // Check for uncompressed "NESSAVE1" magic
+            if (raw.length >= 4 && raw[0] === 0x4E && raw[1] === 0x45 && raw[2] === 0x53 && raw[3] === 0x53) {
+                return raw;
+            }
+            const ds = new DecompressionStream('deflate');
+            const writer = ds.writable.getWriter();
+            writer.write(raw);
+            writer.close();
+            const reader = ds.readable.getReader();
+            const chunks = [];
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+            let len = 0;
+            for (const c of chunks) len += c.length;
+            const result = new Uint8Array(len);
+            let off = 0;
+            for (const c of chunks) { result.set(c, off); off += c.length; }
+            return result;
+        }
+
         function showFilePicker() {
             startTitle.textContent = 'INSERT CARTRIDGE';
             romLabel.style.display = '';
@@ -381,7 +406,7 @@
                 if (doorParam) {
                     const saved = localStorage.getItem(doorParam);
                     if (saved) {
-                        const bytes = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
+                        const bytes = await decodeSaveState(saved);
                         emulator.loadState(bytes);
                         console.log(`[LOAD] Restored state from "${doorParam}" (${bytes.length} bytes)`);
                     } else {
