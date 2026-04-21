@@ -4,6 +4,7 @@ use crate::{
     clock::ClockDivider,
 };
 
+#[allow(dead_code)]
 enum StatusFlag {
     DMCInterrupt    = 0b1000_0000,
     FrameInterrupt  = 0b0100_0000,

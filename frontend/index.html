@@ -267,7 +267,7 @@
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <script type="importmap">
-        { "imports": { "@kabukki/wasm-nes": "./index.js" } }
+        { "imports": { "@kabukki/wasm-nes": "../index.js" } }
     </script>
 </head>
 <body>
@@ -443,9 +443,12 @@
             startEmulator(romData);
         }
 
-        // Auto-load rom.nes, then wait for user interaction before starting
+        // Auto-load ROM named after the containing folder (md5 hash), then wait for user interaction before starting
+        const dir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
+        const romHash = dir.substring(dir.lastIndexOf('/') + 1);
         try {
-            const res = await fetch('./rom.nes');
+            if (!romHash) throw new Error();
+            const res = await fetch(`./${romHash}.nes`);
             if (!res.ok) throw new Error();
             pendingRom = await res.arrayBuffer();
             showPressStart();

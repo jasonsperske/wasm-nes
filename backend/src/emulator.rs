@@ -40,7 +40,6 @@ impl Emulator {
      * CPU and APU tick every 3 PPU cycles (master/12 vs master/4).
      * Audio samples use an integer accumulator.
      */
-    #[inline(always)]
     pub fn cycle (&mut self) {
         // PPU runs every cycle
         self.bus.ppu.cycle(&self.bus.cartridge, &mut self.cpu);
@@ -260,7 +259,6 @@ impl Emulator {
 
     /// Load emulator state from a binary blob
     pub fn load_state (&mut self, data: &[u8]) {
-        let mut i = 0;
         let read_u8 = |i: &mut usize, d: &[u8]| -> u8 { let v = d[*i]; *i += 1; v };
         let read_u16 = |i: &mut usize, d: &[u8]| -> u16 { let v = u16::from_le_bytes([d[*i], d[*i+1]]); *i += 2; v };
         let read_u32 = |i: &mut usize, d: &[u8]| -> u32 { let v = u32::from_le_bytes([d[*i], d[*i+1], d[*i+2], d[*i+3]]); *i += 4; v };
@@ -268,7 +266,7 @@ impl Emulator {
 
         // Magic check
         if &data[0..8] != b"NESSAVE1" { return; }
-        i = 8;
+        let mut i = 8;
 
         // CPU state
         self.cpu.pc = read_u16(&mut i, data);

@@ -13,11 +13,12 @@ impl Logger {
 }
 
 #[wasm_bindgen]
+#[allow(static_mut_refs)]
 pub fn set_panic_hook (callback: js_sys::Function) {
     unsafe {
         LOGGER = Some(Logger { callback });
 
-        std::panic::set_hook(Box::new(|info: &std::panic::PanicInfo| {
+        std::panic::set_hook(Box::new(|info: &std::panic::PanicHookInfo| {
             log::error!("{}", info);
             LOGGER.as_ref().unwrap().log(&format!("{}", info));
         }));

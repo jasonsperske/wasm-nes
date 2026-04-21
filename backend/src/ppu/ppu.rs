@@ -289,10 +289,10 @@ impl Ppu {
                     | (((self.cur_address & LoopyRegister::CoarseY as u16) >> 4) & 0b111000) // Top 3 bits of coarse Y
                 );
                 self.palette_latch = match ((self.cur_address & LoopyRegister::CoarseX as u16) % 4 / 2, ((self.cur_address & LoopyRegister::CoarseY as u16) >> 5) % 4 / 2) {
-                    (0, 0) => (byte >> 0), // Top left
-                    (1, 0) => (byte >> 2), // Top right
-                    (0, 1) => (byte >> 4), // Bottom left
-                    (1, 1) => (byte >> 6), // Bottom right
+                    (0, 0) => byte >> 0, // Top left
+                    (1, 0) => byte >> 2, // Top right
+                    (0, 1) => byte >> 4, // Bottom left
+                    (1, 1) => byte >> 6, // Bottom right
                     _ => panic!("Not possible"),
                 } & 0b11;
             },

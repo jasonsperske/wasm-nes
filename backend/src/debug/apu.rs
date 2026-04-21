@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use wasm_bindgen::prelude::*;
 use crate::Emulator;
 

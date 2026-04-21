@@ -1,0 +1,46 @@
+{
+  "name": "The Legend of Zelda",
+  "mapper": 1,
+  "watches": [
+    { "address": "0x0010", "name": "gameMode", "description": "Main game mode (0=title, 1=file select, 4=intro, 5=gameplay, 7=dying, 0x0B=game over, 0x0E=attract)" },
+    { "address": "0x0012", "name": "gameSubMode", "description": "Sub-mode / screen transition phase" },
+    { "address": "0x0013", "name": "frameCounter", "description": "Frame counter incremented on NMI" },
+    { "address": "0x0066", "name": "level", "description": "Current level (0=overworld, 1-9=dungeon/labyrinth number)" },
+    { "address": "0x006C", "name": "entryMethod", "description": "How Link entered the current room (scrolled, warped, stairs)" },
+    { "address": "0x00AC", "name": "linkAnim", "description": "Link animation / invincibility-flash counter" },
+    { "address": "0x00EB", "name": "linkAction", "description": "Link's current action (walk / attack / use item / taking damage)" },
+    { "address": "0x066D", "name": "dungeonRoom", "description": "Current room index within a dungeon" },
+    { "address": "0x066E", "name": "mapColumn", "description": "Overworld / dungeon map column" },
+    { "address": "0x066F", "name": "mapRow", "description": "Overworld / dungeon map row" }
+  ],
+  "saveState": {
+    "keyTemplate": "save-L{level}-{mapColumn}-{mapRow}",
+    "reads": [
+      { "address": "0x0066", "token": "level" },
+      { "address": "0x066E", "token": "mapColumn" },
+      { "address": "0x066F", "token": "mapRow" }
+    ]
+  },
+  "events": [
+    {
+      "name": "gameplayStart",
+      "label": "Entered gameplay",
+      "trigger": { "watch": "gameMode", "equals": 5 }
+    },
+    {
+      "name": "linkDeath",
+      "label": "Link is dying",
+      "trigger": { "watch": "gameMode", "equals": 7 }
+    },
+    {
+      "name": "gameOver",
+      "label": "Game over",
+      "trigger": { "watch": "gameMode", "equals": 11 }
+    },
+    {
+      "name": "enterDungeon",
+      "label": "Link entered a dungeon",
+      "trigger": { "watch": "level", "equals": 1 }
+    }
+  ]
+}

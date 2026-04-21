@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use wasm_bindgen::prelude::*;
 
 static mut LOGGER: Option<Logger> = None;
@@ -36,6 +37,7 @@ unsafe impl Sync for Logger {}
 unsafe impl Send for Logger {}
 
 #[wasm_bindgen]
+#[allow(static_mut_refs)]
 pub fn set_logger (callback: js_sys::Function) {
     unsafe {
         LOGGER = Some(Logger { callback });
