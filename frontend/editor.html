@@ -51,11 +51,6 @@
             </div>
 
             <div class="panel-section">
-                <div class="panel-title">-- AUDIO --</div>
-                <div id="audioStats" class="saves-list">Not started.</div>
-            </div>
-
-            <div class="panel-section">
                 <div class="panel-title">-- CHANNELS --</div>
                 <div class="saves-list" id="channelToggles">
                     <label class="save-item"><span>PULSE 1</span><input type="checkbox" data-ch="0" checked></label>
@@ -89,7 +84,6 @@
         const eventLog = document.getElementById('eventLog');
         const savesList = document.getElementById('savesList');
         const exportBtn = document.getElementById('exportBtn');
-        const audioStatsEl = document.getElementById('audioStats');
         const channelToggles = document.querySelectorAll('#channelToggles input[type="checkbox"]');
 
         channelToggles.forEach(cb => {
@@ -193,7 +187,7 @@
         async function loadConfig(romBuffer) {
             const hash = await md5Hex(romBuffer);
             try {
-                const res = await fetch(`./config/${hash}/rom-config.json`);
+                const res = await fetch(`./${hash}/rom-config.json`);
                 if (!res.ok) throw new Error(`${res.status}`);
                 config = await res.json();
             } catch {
@@ -407,50 +401,6 @@
             startPrompt.style.display = '';
         }
 
-        // --- Audio stats polling ---
-        let audioStatsRaf = null;
-        let lastFrameTs = 0;
-        let fpsEma = 0;
-        let minQueuedAheadMs = Infinity;
-
-        function fmt(n, d = 2) { return Number(n).toFixed(d); }
-
-        function updateAudioStats(ts) {
-            if (!emulator) return;
-            const s = emulator.audio.stats;
-
-            if (lastFrameTs) {
-                const dt = ts - lastFrameTs;
-                const fps = 1000 / dt;
-                fpsEma = fpsEma ? fpsEma * 0.9 + fps * 0.1 : fps;
-            }
-            lastFrameTs = ts;
-
-            if (s.bufferedMs < minQueuedAheadMs) minQueuedAheadMs = s.bufferedMs;
-
-            audioStatsEl.innerHTML = `
-                <div class="save-item"><span>ctx</span><span class="watch-value">${s.contextState} @ ${s.sampleRate | 0}Hz</span></div>
-                <div class="save-item"><span>baseLatency</span><span class="watch-value">${fmt(s.baseLatency * 1000, 1)}ms</span></div>
-                <div class="save-item"><span>buffered</span><span class="watch-value ${s.bufferedMs < 20 ? 'changed' : ''}">${fmt(s.bufferedMs, 1)} / ${fmt(s.bufferCapacityMs, 0)}ms</span></div>
-                <div class="save-item"><span>min buffered</span><span class="watch-value">${fmt(minQueuedAheadMs, 1)}ms</span></div>
-                <div class="save-item"><span>underruns (samples)</span><span class="watch-value ${s.underruns > 0 ? 'changed' : ''}">${s.underruns}</span></div>
-                <div class="save-item"><span>overflows (samples)</span><span class="watch-value ${s.overflows > 0 ? 'changed' : ''}">${s.overflows}</span></div>
-                <div class="save-item"><span>chunks</span><span class="watch-value">${s.chunksQueued}</span></div>
-                <div class="save-item"><span>lastChunk</span><span class="watch-value">${s.lastChunkSamples}smp / ${fmt(s.lastChunkMs, 2)}ms</span></div>
-                <div class="save-item"><span>fps</span><span class="watch-value">${fmt(fpsEma, 1)}</span></div>
-            `;
-
-            audioStatsRaf = requestAnimationFrame(updateAudioStats);
-        }
-
-        function startAudioStatsPolling() {
-            cancelAnimationFrame(audioStatsRaf);
-            lastFrameTs = 0;
-            fpsEma = 0;
-            minQueuedAheadMs = Infinity;
-            audioStatsRaf = requestAnimationFrame(updateAudioStats);
-        }
-
         let pendingRom = null;
 
         async function startEmulator(romData) {
@@ -480,7 +430,6 @@
                 addEvent(`Loaded: ${config.name}`, '');
                 emulator.start();
                 applyChannelMutes();
-                startAudioStatsPolling();
 
                 // Load save state from ?door= query param
                 const doorParam = new URLSearchParams(window.location.search).get('door');
@@ -515,16 +464,7 @@
             startEmulator(romData);
         }
 
-        try {
-            const res = await fetch('./rom.nes');
-            if (!res.ok) throw new Error();
-            pendingRom = await res.arrayBuffer();
-            showPressStart();
-            document.addEventListener('click', onUserInteraction);
-            document.addEventListener('keydown', onUserInteraction);
-        } catch {
-            showFilePicker();
-        }
+        showFilePicker();
 
         romInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
