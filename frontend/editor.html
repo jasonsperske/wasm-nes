@@ -65,14 +65,6 @@
                     <label class="save-item"><span>DMC</span><input type="checkbox" data-ch="4" checked></label>
                 </div>
             </div>
-
-            <div class="panel-section">
-                <div class="panel-title">-- APU TESTS --</div>
-                <div class="saves-list" id="apuTests"></div>
-                <div style="font-size:7px;color:#555;line-height:1.6;margin-top:6px">
-                    bbbradsmith/nes-audio-tests
-                </div>
-            </div>
         </div>
     </div>
 
@@ -98,39 +90,7 @@
         const savesList = document.getElementById('savesList');
         const exportBtn = document.getElementById('exportBtn');
         const audioStatsEl = document.getElementById('audioStats');
-        const apuTestsEl = document.getElementById('apuTests');
         const channelToggles = document.querySelectorAll('#channelToggles input[type="checkbox"]');
-
-        // APU test ROMs from bbbradsmith/nes-audio-tests. Each entry describes
-        // the specific behavior exercised so you can spot-listen for deviations.
-        const APU_TESTS = [
-            { file: 'db_apu.nes',      label: 'db_apu',      hint: 'pulse vs triangle volume' },
-            { file: 'dac_square.nes',  label: 'dac_square',  hint: 'pulse DAC linearity' },
-            { file: 'dac_tnd0.nes',    label: 'dac_tnd0',    hint: 'triangle DAC sweep' },
-            { file: 'dac_tnd1.nes',    label: 'dac_tnd1',    hint: 'triangle + noise mix' },
-            { file: 'tri_silence.nes', label: 'tri_silence', hint: 'triangle ultrasonic mute' },
-        ];
-
-        for (const t of APU_TESTS) {
-            const row = document.createElement('div');
-            row.className = 'save-item';
-            row.title = t.hint;
-            row.innerHTML = `<a class="save-link" href="#">${t.label}</a><span style="color:#555;font-size:7px">${t.hint}</span>`;
-            row.querySelector('a').addEventListener('click', async (e) => {
-                e.preventDefault();
-                try {
-                    const res = await fetch(`./tests/${t.file}`);
-                    if (!res.ok) throw new Error(`${res.status} — is tests/${t.file} in dist/tests/?`);
-                    const buf = await res.arrayBuffer();
-                    addEvent(`Loading test: ${t.label}`, '');
-                    await startEmulator(buf);
-                } catch (err) {
-                    console.error(err);
-                    addEvent(`Failed to load ${t.label}: ${err.message}`, '');
-                }
-            });
-            apuTestsEl.appendChild(row);
-        }
 
         channelToggles.forEach(cb => {
             cb.addEventListener('change', () => {
