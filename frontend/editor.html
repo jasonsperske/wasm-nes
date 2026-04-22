@@ -371,6 +371,30 @@
                 <div class="saves-list" id="savesList"></div>
                 <button class="export-btn" id="exportBtn" style="display:none">EXPORT JSON</button>
             </div>
+
+            <div class="panel-section">
+                <div class="panel-title">-- AUDIO --</div>
+                <div id="audioStats" class="saves-list">Not started.</div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">-- CHANNELS --</div>
+                <div class="saves-list" id="channelToggles">
+                    <label class="save-item"><span>PULSE 1</span><input type="checkbox" data-ch="0" checked></label>
+                    <label class="save-item"><span>PULSE 2</span><input type="checkbox" data-ch="1" checked></label>
+                    <label class="save-item"><span>TRIANGLE</span><input type="checkbox" data-ch="2" checked></label>
+                    <label class="save-item"><span>NOISE</span><input type="checkbox" data-ch="3" checked></label>
+                    <label class="save-item"><span>DMC</span><input type="checkbox" data-ch="4" checked></label>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">-- APU TESTS --</div>
+                <div class="saves-list" id="apuTests"></div>
+                <div style="font-size:7px;color:#555;line-height:1.6;margin-top:6px">
+                    bbbradsmith/nes-audio-tests
+                </div>
+            </div>
         </div>
     </div>
 
@@ -395,6 +419,55 @@
         const eventLog = document.getElementById('eventLog');
         const savesList = document.getElementById('savesList');
         const exportBtn = document.getElementById('exportBtn');
+        const audioStatsEl = document.getElementById('audioStats');
+        const apuTestsEl = document.getElementById('apuTests');
+        const channelToggles = document.querySelectorAll('#channelToggles input[type="checkbox"]');
+
+        // APU test ROMs from bbbradsmith/nes-audio-tests. Each entry describes
+        // the specific behavior exercised so you can spot-listen for deviations.
+        const APU_TESTS = [
+            { file: 'db_apu.nes',      label: 'db_apu',      hint: 'pulse vs triangle volume' },
+            { file: 'dac_square.nes',  label: 'dac_square',  hint: 'pulse DAC linearity' },
+            { file: 'dac_tnd0.nes',    label: 'dac_tnd0',    hint: 'triangle DAC sweep' },
+            { file: 'dac_tnd1.nes',    label: 'dac_tnd1',    hint: 'triangle + noise mix' },
+            { file: 'tri_silence.nes', label: 'tri_silence', hint: 'triangle ultrasonic mute' },
+        ];
+
+        for (const t of APU_TESTS) {
+            const row = document.createElement('div');
+            row.className = 'save-item';
+            row.title = t.hint;
+            row.innerHTML = `<a class="save-link" href="#">${t.label}</a><span style="color:#555;font-size:7px">${t.hint}</span>`;
+            row.querySelector('a').addEventListener('click', async (e) => {
+                e.preventDefault();
+                try {
+                    const res = await fetch(`./tests/${t.file}`);
+                    if (!res.ok) throw new Error(`${res.status} — is tests/${t.file} in dist/tests/?`);
+                    const buf = await res.arrayBuffer();
+                    addEvent(`Loading test: ${t.label}`, '');
+                    await startEmulator(buf);
+                } catch (err) {
+                    console.error(err);
+                    addEvent(`Failed to load ${t.label}: ${err.message}`, '');
+                }
+            });
+            apuTestsEl.appendChild(row);
+        }
+
+        channelToggles.forEach(cb => {
+            cb.addEventListener('change', () => {
+                const ch = parseInt(cb.dataset.ch, 10);
+                if (emulator) emulator.setChannelMuted(ch, !cb.checked);
+            });
+        });
+
+        function applyChannelMutes() {
+            if (!emulator) return;
+            channelToggles.forEach(cb => {
+                const ch = parseInt(cb.dataset.ch, 10);
+                emulator.setChannelMuted(ch, !cb.checked);
+            });
+        }
 
         let emulator = null;
         let config = null;
@@ -481,14 +554,11 @@
 
         async function loadConfig(romBuffer) {
             const hash = await md5Hex(romBuffer);
-            console.log(`ROM MD5: ${hash}`);
             try {
                 const res = await fetch(`./config/${hash}/rom-config.json`);
                 if (!res.ok) throw new Error(`${res.status}`);
                 config = await res.json();
-                console.log(`Loaded config for "${config.name}" from config/${hash}/`);
             } catch {
-                console.warn(`No config found at config/${hash}/rom-config.json — using empty config`);
                 config = { name: 'Unknown ROM', watches: [], events: [] };
             }
             document.title = `NES Editor - ${config.name}`;
@@ -699,6 +769,50 @@
             startPrompt.style.display = '';
         }
 
+        // --- Audio stats polling ---
+        let audioStatsRaf = null;
+        let lastFrameTs = 0;
+        let fpsEma = 0;
+        let minQueuedAheadMs = Infinity;
+
+        function fmt(n, d = 2) { return Number(n).toFixed(d); }
+
+        function updateAudioStats(ts) {
+            if (!emulator) return;
+            const s = emulator.audio.stats;
+
+            if (lastFrameTs) {
+                const dt = ts - lastFrameTs;
+                const fps = 1000 / dt;
+                fpsEma = fpsEma ? fpsEma * 0.9 + fps * 0.1 : fps;
+            }
+            lastFrameTs = ts;
+
+            if (s.bufferedMs < minQueuedAheadMs) minQueuedAheadMs = s.bufferedMs;
+
+            audioStatsEl.innerHTML = `
+                <div class="save-item"><span>ctx</span><span class="watch-value">${s.contextState} @ ${s.sampleRate | 0}Hz</span></div>
+                <div class="save-item"><span>baseLatency</span><span class="watch-value">${fmt(s.baseLatency * 1000, 1)}ms</span></div>
+                <div class="save-item"><span>buffered</span><span class="watch-value ${s.bufferedMs < 20 ? 'changed' : ''}">${fmt(s.bufferedMs, 1)} / ${fmt(s.bufferCapacityMs, 0)}ms</span></div>
+                <div class="save-item"><span>min buffered</span><span class="watch-value">${fmt(minQueuedAheadMs, 1)}ms</span></div>
+                <div class="save-item"><span>underruns (samples)</span><span class="watch-value ${s.underruns > 0 ? 'changed' : ''}">${s.underruns}</span></div>
+                <div class="save-item"><span>overflows (samples)</span><span class="watch-value ${s.overflows > 0 ? 'changed' : ''}">${s.overflows}</span></div>
+                <div class="save-item"><span>chunks</span><span class="watch-value">${s.chunksQueued}</span></div>
+                <div class="save-item"><span>lastChunk</span><span class="watch-value">${s.lastChunkSamples}smp / ${fmt(s.lastChunkMs, 2)}ms</span></div>
+                <div class="save-item"><span>fps</span><span class="watch-value">${fmt(fpsEma, 1)}</span></div>
+            `;
+
+            audioStatsRaf = requestAnimationFrame(updateAudioStats);
+        }
+
+        function startAudioStatsPolling() {
+            cancelAnimationFrame(audioStatsRaf);
+            lastFrameTs = 0;
+            fpsEma = 0;
+            minQueuedAheadMs = Infinity;
+            audioStatsRaf = requestAnimationFrame(updateAudioStats);
+        }
+
         let pendingRom = null;
 
         async function startEmulator(romData) {
@@ -727,6 +841,8 @@
                 refreshSavesList();
                 addEvent(`Loaded: ${config.name}`, '');
                 emulator.start();
+                applyChannelMutes();
+                startAudioStatsPolling();
 
                 // Load save state from ?door= query param
                 const doorParam = new URLSearchParams(window.location.search).get('door');

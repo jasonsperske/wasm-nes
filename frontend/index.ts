@@ -54,7 +54,11 @@ export class Nes {
         this.logs = new Logs();
         this.memory = memory;
         this.audio = new Audio();
-        this.#vm = Emulator.new(rom, this.audio.sampleRate);
+        // NTSC NES runs at 60.0988 fps but RAF consumes audio at 60 fps. Scale the
+        // APU's sample rate up by the same factor so one emulated frame produces
+        // one real-world frame's worth of samples. Pitch shifts by ~0.16%.
+        const NTSC_FPS = 60.0988;
+        this.#vm = Emulator.new(rom, this.audio.sampleRate * NTSC_FPS / 60);
         this.#stats = new GameStats({ historyLimit: 100 });
         this.#watches = [];
         this.#watchValues = new Map();
@@ -64,10 +68,27 @@ export class Nes {
     }
 
     start () {
+        // Drive emulator ticks from wall-clock time rather than RAF count:
+        // when RAF drops a frame, next tick runs extra emulator frames so audio
+        // sample production keeps pace with consumption. Cap catch-up to avoid
+        // a runaway burst after a tab suspension.
+        const NTSC_FRAME_SEC = 1 / 60.0988;
+        const MAX_CATCHUP_FRAMES = 5;
+        let startTs: number | null = null;
+        let framesRun = 0;
+
         const rafCallback = (timestamp) => {
-            this.cycleUntil('frame');
+            const nowSec = timestamp / 1000;
+            if (startTs === null) startTs = nowSec;
+            const targetFrames = Math.floor((nowSec - startTs) / NTSC_FRAME_SEC) + 1;
+            const toRun = Math.max(1, Math.min(targetFrames - framesRun, MAX_CATCHUP_FRAMES));
+
+            for (let i = 0; i < toRun; i++) {
+                this.cycleUntil('frame');
+                framesRun++;
+            }
+
             this.#stats.record(timestamp);
-            // Don't run another frame if it has been canceled in the mean time
             if (this.#rafHandle) {
                 this.#rafHandle = requestAnimationFrame(rafCallback);
             }
@@ -184,6 +205,11 @@ export class Nes {
 
     input (player: number, button: Button, pressed: boolean) {
         this.#vm.update_controller(player, button, pressed);
+    }
+
+    /** Mute or unmute a single APU channel. 0=Pulse1, 1=Pulse2, 2=Triangle, 3=Noise. */
+    setChannelMuted (channel: number, muted: boolean) {
+        this.#vm.set_channel_muted(channel, muted);
     }
 
     get status () {

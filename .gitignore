@@ -4,5 +4,6 @@ target/
 dist/
 pkg/
 rooms/
+tests/*.nes
 *.o
 .DS_Store

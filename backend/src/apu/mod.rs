@@ -1,8 +1,14 @@
 mod apu;
 mod pulse;
+mod triangle;
+mod noise;
+mod dmc;
 
 pub use apu::*;
 pub use pulse::*;
+pub use triangle::*;
+pub use noise::*;
+pub use dmc::*;
 
 /**
  * https://wiki.nesdev.org/w/index.php/APU_Length_Counter

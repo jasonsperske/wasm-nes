@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use crate::{bus, cpu, clock, input};
+use crate::{bus, cpu, cpu::Interrupt, clock, input};
 
 #[wasm_bindgen]
 pub struct Emulator {
@@ -82,6 +82,21 @@ impl Emulator {
             // APU cycle (same rate as CPU)
             self.bus.apu.clock.cycles += 1;
             self.bus.apu.cycle(&mut self.cpu);
+
+            // Service any pending DMC sample fetch. The DMC steals the CPU
+            // bus for ~4 cycles per fetch on real hardware; we model that as
+            // a stall added to the current instruction.
+            if let Some(addr) = self.bus.apu.dmc.fetch_address() {
+                let byte = self.bus.read(addr);
+                self.bus.apu.dmc.complete_fetch(byte);
+                self.cpu.cycles = self.cpu.cycles.saturating_add(4);
+            }
+
+            // Edge-trigger the CPU IRQ on DMC sample completion.
+            if self.bus.apu.dmc.irq_pending {
+                self.bus.apu.dmc.irq_pending = false;
+                self.cpu.interrupt_request(Interrupt::IRQ);
+            }
         }
 
         // APU sample accumulator (integer fixed-point)
@@ -131,6 +146,12 @@ impl Emulator {
     //     self.clock.rate = crate::util::CLOCK_MASTER_PAL;
     // }
 
+    /// Mute/unmute individual APU channels for debugging.
+    /// 0 = Pulse 1, 1 = Pulse 2, 2 = Triangle, 3 = Noise.
+    pub fn set_channel_muted (&mut self, channel: u8, muted: bool) {
+        self.bus.apu.set_channel_muted(channel as usize, muted);
+    }
+
     pub fn update_controller (&mut self, player: usize, button: input::Button, pressed: bool) {
         let state = self.bus.controllers[player].peek().unwrap();
         let state = if pressed { state | button as u8 } else { state & !(button as u8)};
@@ -163,8 +184,9 @@ impl Emulator {
     pub fn save_state (&self) -> Vec<u8> {
         let mut s: Vec<u8> = Vec::with_capacity(8192);
 
-        // Magic + version
-        s.extend_from_slice(b"NESSAVE1");
+        // Magic + version. NESSAVE2 added DMC channel state at the end of the
+        // APU section.
+        s.extend_from_slice(b"NESSAVE2");
 
         // CPU state
         s.extend_from_slice(&self.cpu.pc.to_le_bytes());
@@ -222,6 +244,22 @@ impl Emulator {
         // APU state
         s.extend_from_slice(&(self.bus.apu.clock.cycles as u32).to_le_bytes());
 
+        // DMC state (NESSAVE2+)
+        let dmc = &self.bus.apu.dmc;
+        s.extend_from_slice(&dmc.timer.to_le_bytes());
+        s.push(dmc.output);
+        s.extend_from_slice(&dmc.sample_address.to_le_bytes());
+        s.extend_from_slice(&dmc.sample_length.to_le_bytes());
+        s.extend_from_slice(&dmc.current_address.to_le_bytes());
+        s.extend_from_slice(&dmc.bytes_remaining.to_le_bytes());
+        s.push(dmc.sample_buffer.unwrap_or(0));
+        s.push(if dmc.sample_buffer.is_some() { 1 } else { 0 });
+        s.push(dmc.shift_register);
+        s.push(dmc.bits_remaining);
+        s.push(if dmc.silence { 1 } else { 0 });
+        s.push(if dmc.irq_flag { 1 } else { 0 });
+        s.push(if dmc.irq_pending { 1 } else { 0 });
+
         // Controller state
         s.push(self.bus.controllers[0].peek().unwrap_or(0));
         s.push(self.bus.controllers[1].peek().unwrap_or(0));
@@ -264,8 +302,13 @@ impl Emulator {
         let read_u32 = |i: &mut usize, d: &[u8]| -> u32 { let v = u32::from_le_bytes([d[*i], d[*i+1], d[*i+2], d[*i+3]]); *i += 4; v };
         let read_u64 = |i: &mut usize, d: &[u8]| -> u64 { let v = u64::from_le_bytes([d[*i], d[*i+1], d[*i+2], d[*i+3], d[*i+4], d[*i+5], d[*i+6], d[*i+7]]); *i += 8; v };
 
-        // Magic check
-        if &data[0..8] != b"NESSAVE1" { return; }
+        // Magic check. NESSAVE1 is the legacy format (no DMC); NESSAVE2 adds
+        // DMC channel state. Both are accepted on load.
+        let has_dmc = match &data[0..8] {
+            b"NESSAVE2" => true,
+            b"NESSAVE1" => false,
+            _ => return,
+        };
         let mut i = 8;
 
         // CPU state
@@ -322,6 +365,26 @@ impl Emulator {
 
         // APU state
         self.bus.apu.clock.cycles = read_u32(&mut i, data) as usize;
+
+        // DMC state (NESSAVE2+). For legacy NESSAVE1 saves, leave the DMC at
+        // its constructor defaults (silent, idle).
+        if has_dmc {
+            let dmc = &mut self.bus.apu.dmc;
+            dmc.timer = read_u16(&mut i, data);
+            dmc.output = read_u8(&mut i, data);
+            dmc.sample_address = read_u16(&mut i, data);
+            dmc.sample_length = read_u16(&mut i, data);
+            dmc.current_address = read_u16(&mut i, data);
+            dmc.bytes_remaining = read_u16(&mut i, data);
+            let buffer_byte = read_u8(&mut i, data);
+            let has_buffer = read_u8(&mut i, data) != 0;
+            dmc.sample_buffer = if has_buffer { Some(buffer_byte) } else { None };
+            dmc.shift_register = read_u8(&mut i, data);
+            dmc.bits_remaining = read_u8(&mut i, data);
+            dmc.silence = read_u8(&mut i, data) != 0;
+            dmc.irq_flag = read_u8(&mut i, data) != 0;
+            dmc.irq_pending = read_u8(&mut i, data) != 0;
+        }
 
         // Controller state
         self.bus.controllers[0].update(read_u8(&mut i, data));
