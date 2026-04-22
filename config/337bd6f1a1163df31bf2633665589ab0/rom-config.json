@@ -9,7 +9,7 @@
     { "address": "0x006C", "name": "entryMethod", "description": "How Link entered the current room (scrolled, warped, stairs)" },
     { "address": "0x00AC", "name": "linkAnim", "description": "Link animation / invincibility-flash counter" },
     { "address": "0x00EB", "name": "linkAction", "description": "Link's current action (walk / attack / use item / taking damage)" },
-    { "address": "0x066D", "name": "dungeonRoom", "description": "Current room index within a dungeon" },
+    { "address": "0x066D", "name": "rupies", "description": "Current amount of rupies" },
     { "address": "0x066E", "name": "mapColumn", "description": "Overworld / dungeon map column" },
     { "address": "0x066F", "name": "mapRow", "description": "Overworld / dungeon map row" }
   ],
